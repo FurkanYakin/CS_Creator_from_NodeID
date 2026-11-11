@@ -9,156 +9,138 @@ from System.Windows.Forms import (
     Label,
     TextBox,
     Button,
-    ComboBox,
-    ComboBoxStyle,
+    RadioButton,
     DialogResult,
     FormStartPosition,
-    ScrollBars,
+    FormBorderStyle,
+    FlatStyle,
     MessageBox,
     MessageBoxButtons,
     MessageBoxIcon
 )
 
-from System.Drawing import Point, Size
+from System.Drawing import Point, Size, Color
+from System.Collections.Generic import List
+from Ansys.Mechanical.DataModel.Interfaces import IDataModelObject
 
 
 # ============================================================
-# FUNCTIONS
+# SETTINGS
 # ============================================================
 
-def expandNodes(spec):
+# MAPDL *GET koordinatlarinin uzunluk birimi.
+# N-mm sistemi kullaniyorsan "mm" olarak birak.
+APDL_LENGTH_UNIT = "mm"
 
-    spec = spec.replace(" ", "")
-    spec = spec.replace(";", ",")
+COMMAND_NAME = "Node Coordinate Reader (APDL)"
 
-    result = []
 
-    tokens = spec.split(",")
+# ============================================================
+# NODE ID PARSER
+# Desteklenen:
+# 125
+# 125,130,145
+# 125-130
+# 125,130-135,150
+# ============================================================
 
-    for token in tokens:
+def parse_node_ids(text):
 
-        token = token.strip()
+    text = text.replace(" ", "")
+    text = text.replace(";", ",")
 
-        if not token:
+    if not text:
+        raise Exception("Node ID girilmedi.")
+
+    node_ids = []
+
+    items = text.split(",")
+
+    for item in items:
+
+        if not item:
             continue
 
-        if "-" in token:
+        if "-" in item:
 
-            parts = token.split("-")
+            parts = item.split("-")
 
             if len(parts) != 2:
                 raise Exception(
-                    "Gecersiz node araligi: {}".format(token)
+                    "Gecersiz node araligi: {}".format(item)
                 )
 
-            firstNode = int(parts[0])
-            lastNode = int(parts[1])
+            first_id = int(parts[0])
+            last_id = int(parts[1])
 
-            if firstNode <= 0 or lastNode <= 0:
+            if first_id <= 0 or last_id <= 0:
                 raise Exception(
-                    "Node ID pozitif olmali: {}".format(token)
+                    "Node ID pozitif olmalidir."
                 )
 
-            if lastNode < firstNode:
+            if last_id < first_id:
                 raise Exception(
-                    "Aralik ters girilmis: {}".format(token)
+                    "Gecersiz aralik: {}".format(item)
                 )
 
-            for nodeId in range(firstNode, lastNode + 1):
-                result.append(nodeId)
+            for node_id in range(first_id, last_id + 1):
+
+                if node_id not in node_ids:
+                    node_ids.append(node_id)
 
         else:
 
-            nodeId = int(token)
+            node_id = int(item)
 
-            if nodeId <= 0:
+            if node_id <= 0:
                 raise Exception(
-                    "Node ID pozitif olmali: {}".format(token)
+                    "Node ID pozitif olmalidir."
                 )
 
-            result.append(nodeId)
+            if node_id not in node_ids:
+                node_ids.append(node_id)
 
-    return result
+    if len(node_ids) == 0:
+        raise Exception("Gecerli Node ID bulunamadi.")
 
-
-def parseInput(text):
-
-    entries = []
-    seen = set()
-
-    lines = text.splitlines()
-
-    for line in lines:
-
-        line = line.strip()
-
-        if not line:
-            continue
-
-        groupName = ""
-        nodeSpec = line
-
-        if ":" in line:
-
-            parts = line.split(":", 1)
-
-            groupName = parts[0].strip()
-            nodeSpec = parts[1].strip()
-
-        nodes = expandNodes(nodeSpec)
-
-        for nodeId in nodes:
-
-            key = (groupName, nodeId)
-
-            if key not in seen:
-
-                seen.add(key)
-
-                entries.append(
-                    (groupName, nodeId)
-                )
-
-    if len(entries) == 0:
-
-        raise Exception(
-            "En az bir node ID girilmelidir."
-        )
-
-    return entries
+    return node_ids
 
 
-def numericValue(value):
+# ============================================================
+# CONVERT APDL OUTPUT PARAMETER TO FLOAT
+# ============================================================
+
+def numeric_value(value):
 
     try:
         return float(value)
-
     except:
         pass
 
     try:
         return float(value.Value)
-
     except:
         pass
 
     text = str(value).strip()
-
     text = text.replace("D", "E")
 
     return float(text.split()[0])
 
 
-def getExistingCs(csName):
+# ============================================================
+# FIND EXISTING COORDINATE SYSTEM
+# ============================================================
 
-    objects = DataModel.GetObjectsByName(csName)
+def get_existing_cs(name):
+
+    objects = DataModel.GetObjectsByName(name)
 
     for obj in objects:
 
         try:
-            test = obj.OriginX
+            dummy = obj.OriginX
             return obj
-
         except:
             pass
 
@@ -171,169 +153,199 @@ def getExistingCs(csName):
 
 form = Form()
 
-form.Text = "APDL Node Coordinate Systems"
-form.ClientSize = Size(560, 390)
+form.Text = "Create Coordinate Systems from Node IDs"
+form.ClientSize = Size(430, 240)
+
 form.StartPosition = FormStartPosition.CenterScreen
-form.TopMost = True
+form.FormBorderStyle = FormBorderStyle.FixedDialog
+
+form.MaximizeBox = False
+form.MinimizeBox = False
+
+form.BackColor = Color.FromArgb(32, 32, 32)
+form.ForeColor = Color.White
 
 
-titleLabel = Label()
+# ------------------------------------------------------------
+# Title
+# ------------------------------------------------------------
 
-titleLabel.Text = "Node ID veya node gruplarini girin:"
-titleLabel.Location = Point(20, 20)
-titleLabel.Size = Size(500, 25)
+title_label = Label()
 
-form.Controls.Add(titleLabel)
+title_label.Text = "Node ID veya node gruplarini girin:"
+
+title_label.Location = Point(35, 20)
+title_label.Size = Size(350, 20)
+
+title_label.ForeColor = Color.White
+title_label.BackColor = form.BackColor
+
+form.Controls.Add(title_label)
 
 
-infoLabel = Label()
+# ------------------------------------------------------------
+# IDs format label
+# ------------------------------------------------------------
 
-infoLabel.Text = (
-    "Ornekler:\r\n"
-    "125\r\n"
-    "125,130,140\r\n"
-    "125-135\r\n"
-    "SupportA: 125,130,140-145"
+id_label = Label()
+
+id_label.Text = "IDs:    {1 or 3-6 or 2, 5-9, 47}"
+
+id_label.Location = Point(35, 50)
+id_label.Size = Size(350, 20)
+
+id_label.ForeColor = Color.White
+id_label.BackColor = form.BackColor
+
+form.Controls.Add(id_label)
+
+
+# ------------------------------------------------------------
+# Input textbox
+# ------------------------------------------------------------
+
+id_box = TextBox()
+
+id_box.Location = Point(35, 75)
+id_box.Size = Size(370, 22)
+
+id_box.BackColor = Color.White
+id_box.ForeColor = Color.Black
+
+form.Controls.Add(id_box)
+
+
+# ------------------------------------------------------------
+# Description
+# ------------------------------------------------------------
+
+description_label = Label()
+
+description_label.Text = (
+    "Bu arac, girilen Node ID'lerin koordinatlarini APDL *GET komutlari ile alir.\r\n"
+    "Her node icin X, Y ve Z koordinatlari MAPDL sonucundan okunur.\r\n"
+    "Bu koordinatlar kullanilarak Mechanical icinde Coordinate System olusturulur.\r\n"
+    "Birden fazla node ID veya node araligi ayni anda girilebilir."
 )
 
-infoLabel.Location = Point(20, 50)
-infoLabel.Size = Size(500, 80)
+description_label.Location = Point(35, 110)
+description_label.Size = Size(370, 75)
 
-form.Controls.Add(infoLabel)
+description_label.ForeColor = Color.LightGray
+description_label.BackColor = form.BackColor
 
-
-nodeBox = TextBox()
-
-nodeBox.Multiline = True
-nodeBox.ScrollBars = ScrollBars.Vertical
-
-nodeBox.Location = Point(20, 135)
-nodeBox.Size = Size(515, 120)
-
-nodeBox.Text = "125"
-
-form.Controls.Add(nodeBox)
+form.Controls.Add(description_label)
 
 
-unitLabel = Label()
+# ------------------------------------------------------------
+# Create Coordinate System button
+# ------------------------------------------------------------
 
-unitLabel.Text = "APDL length unit:"
-unitLabel.Location = Point(20, 275)
-unitLabel.Size = Size(150, 25)
+create_button = Button()
 
-form.Controls.Add(unitLabel)
+create_button.Text = "Create Coordinate System"
 
+create_button.Location = Point(110, 195)
+create_button.Size = Size(190, 28)
 
-unitBox = ComboBox()
+create_button.FlatStyle = FlatStyle.Flat
 
-unitBox.Location = Point(170, 272)
-unitBox.Size = Size(120, 25)
-unitBox.DropDownStyle = ComboBoxStyle.DropDownList
+create_button.BackColor = Color.FromArgb(95, 95, 95)
+create_button.ForeColor = Color.White
 
-for unit in ["mm", "m", "cm", "um", "in", "ft"]:
-    unitBox.Items.Add(unit)
-
-unitBox.SelectedItem = "mm"
-
-form.Controls.Add(unitBox)
+form.Controls.Add(create_button)
 
 
-unitInfo = Label()
+# ------------------------------------------------------------
+# Close button
+# ------------------------------------------------------------
 
-unitInfo.Text = "Bu birim MAPDL *GET sonucunun birimi olmalidir."
-unitInfo.Location = Point(20, 305)
-unitInfo.Size = Size(500, 25)
+close_button = Button()
 
-form.Controls.Add(unitInfo)
+close_button.Text = "Close"
 
+close_button.Location = Point(315, 195)
+close_button.Size = Size(70, 28)
 
-okButton = Button()
+close_button.FlatStyle = FlatStyle.Flat
 
-okButton.Text = "Create CS"
-okButton.Location = Point(335, 340)
-okButton.Size = Size(95, 30)
+close_button.BackColor = Color.FromArgb(95, 95, 95)
+close_button.ForeColor = Color.White
 
-form.Controls.Add(okButton)
+close_button.DialogResult = DialogResult.Cancel
 
+form.Controls.Add(close_button)
 
-cancelButton = Button()
-
-cancelButton.Text = "Cancel"
-cancelButton.Location = Point(440, 340)
-cancelButton.Size = Size(95, 30)
-cancelButton.DialogResult = DialogResult.Cancel
-
-form.Controls.Add(cancelButton)
+form.CancelButton = close_button
 
 
-form.CancelButton = cancelButton
-form.AcceptButton = okButton
+# ============================================================
+# FORM STATE
+# ============================================================
 
-
-dialogState = {
-    "entries": None
+form_state = {
+    "nodes": None
 }
 
 
-def onOk(sender, args):
+# ============================================================
+# CREATE BUTTON EVENT
+# ============================================================
+
+def create_clicked(sender, event):
 
     try:
 
-        entries = parseInput(nodeBox.Text)
+        node_ids = parse_node_ids(id_box.Text)
 
-        dialogState["entries"] = entries
+        form_state["nodes"] = node_ids
 
         form.DialogResult = DialogResult.OK
-
         form.Close()
 
     except Exception as error:
 
         MessageBox.Show(
             str(error),
-            "Invalid Node Input",
+            "Invalid Node IDs",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error
         )
 
 
-okButton.Click += onOk
+create_button.Click += create_clicked
 
 
 # ============================================================
 # SHOW FORM
 # ============================================================
 
-dialogResult = form.ShowDialog()
+result = form.ShowDialog()
 
 
 # ============================================================
-# MAIN SCRIPT
+# MAIN
 # ============================================================
 
-if dialogResult == DialogResult.OK:
+if result == DialogResult.OK:
 
-    entries = dialogState["entries"]
+    node_ids = form_state["nodes"]
 
-    lengthUnit = str(unitBox.SelectedItem)
+    # --------------------------------------------------------
+    # ANALYSIS / SOLUTION
+    # --------------------------------------------------------
 
     analysis = DataModel.AnalysisList[0]
-
     solution = analysis.Solution
 
+    rst_path = solution.ResultFilePath
 
-    # --------------------------------------------------------
-    # CHECK RESULT FILE
-    # --------------------------------------------------------
-
-    rstPath = solution.ResultFilePath
-
-    if not rstPath or not os.path.exists(rstPath):
+    if not rst_path or not os.path.exists(rst_path):
 
         MessageBox.Show(
-            "Result file bulunamadi.\r\n\r\n"
-            "Analizi once Solve ettikten sonra scripti calistirin.",
-            "No Result File",
+            "Result file bulunamadi.\n"
+            "Once analizi Solve etmelisiniz.",
+            "Result File Not Found",
             MessageBoxButtons.OK,
             MessageBoxIcon.Error
         )
@@ -343,248 +355,240 @@ if dialogResult == DialogResult.OK:
         )
 
 
-    # --------------------------------------------------------
-    # REMOVE OLD TEMPORARY COMMAND OBJECT
-    # --------------------------------------------------------
+    # ========================================================
+    # FIND OR CREATE COMMAND SNIPPET
+    # ========================================================
 
-    cmdName = "Node Coordinate Reader"
+    cmd = None
 
-    oldCommands = DataModel.GetObjectsByName(cmdName)
+    existing = DataModel.GetObjectsByName(
+        COMMAND_NAME
+    )
 
-    for obj in list(oldCommands):
+    for obj in existing:
 
         try:
 
+            dummy = obj.OutputSearchPrefix
+
             if obj.Parent == solution:
-
-                test = obj.OutputSearchPrefix
-
-                obj.Delete()
+                cmd = obj
+                break
 
         except:
             pass
 
 
-    # --------------------------------------------------------
-    # CREATE APDL COMMAND OBJECT
-    # --------------------------------------------------------
+    if cmd is None:
 
-    cmd = solution.AddCommandSnippet()
+        cmd = solution.AddCommandSnippet()
+        cmd.Name = COMMAND_NAME
 
-    cmd.Name = cmdName
+
+    # ========================================================
+    # APDL OUTPUT PARAMETER PREFIX
+    # ========================================================
 
     cmd.OutputSearchPrefix = "NC"
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # GENERATE APDL
-    # --------------------------------------------------------
+    # ========================================================
 
-    apdlLines = []
+    apdl = []
 
-    apdlLines.append("! NODE COORDINATE READER")
-    apdlLines.append("/POST1")
-    apdlLines.append("SET,LAST")
-    apdlLines.append("CSYS,0")
-    apdlLines.append("")
+    apdl.append("/POST1")
+    apdl.append("SET,LAST")
+    apdl.append("CSYS,0")
+    apdl.append("")
 
-    indexMap = {}
+    parameter_map = {}
 
-    for index in range(len(entries)):
 
-        groupName = entries[index][0]
-        nodeId = entries[index][1]
+    for index, node_id in enumerate(node_ids):
 
-        tag = str(index + 1).zfill(4)
+        tag = "{:04d}".format(index + 1)
 
-        indexMap[tag] = (
-            groupName,
-            nodeId
+        x_name = "NCX{}".format(tag)
+        y_name = "NCY{}".format(tag)
+        z_name = "NCZ{}".format(tag)
+
+        parameter_map[node_id] = (
+            x_name,
+            y_name,
+            z_name
         )
 
-        apdlLines.append(
-            "*GET,NCX{0},NODE,{1},LOC,X".format(
-                tag,
-                nodeId
+
+        apdl.append(
+            "*GET,{0},NODE,{1},LOC,X".format(
+                x_name,
+                node_id
             )
         )
 
-        apdlLines.append(
-            "*GET,NCY{0},NODE,{1},LOC,Y".format(
-                tag,
-                nodeId
+        apdl.append(
+            "*GET,{0},NODE,{1},LOC,Y".format(
+                y_name,
+                node_id
             )
         )
 
-        apdlLines.append(
-            "*GET,NCZ{0},NODE,{1},LOC,Z".format(
-                tag,
-                nodeId
+        apdl.append(
+            "*GET,{0},NODE,{1},LOC,Z".format(
+                z_name,
+                node_id
             )
         )
 
-        apdlLines.append("")
+        apdl.append("")
 
 
-    cmd.Input = "\n".join(apdlLines)
+    cmd.Input = "\n".join(apdl)
 
     ExtAPI.DataModel.Tree.Refresh()
 
 
-    # --------------------------------------------------------
-    # EXECUTE ONLY THIS POST COMMAND
-    # --------------------------------------------------------
+    # ========================================================
+    # EXECUTE ONLY THIS APDL POST COMMAND
+    # ========================================================
 
-    try:
+    command_list = List[IDataModelObject]()
 
-        solution.ExecutePostCommands([cmd])
+    command_list.Add(cmd)
 
-    except:
-
-        try:
-
-            from System.Collections.Generic import List
-            from Ansys.Mechanical.DataModel.Interfaces import IDataModelObject
-
-            cmdList = List[IDataModelObject]()
-
-            cmdList.Add(cmd)
-
-            solution.ExecutePostCommands(cmdList)
-
-        except Exception as error:
-
-            MessageBox.Show(
-                "APDL Post Command calistirilamadi.\r\n\r\n{}".format(
-                    str(error)
-                ),
-                "APDL Error",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error
-            )
-
-            raise
+    solution.ExecutePostCommands(
+        command_list
+    )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # READ APDL OUTPUT PARAMETERS
-    # --------------------------------------------------------
+    # ========================================================
 
     values = {}
 
-    for parameter in cmd.OutputParameters:
 
-        paramName = str(parameter.Name).upper()
+    if cmd.OutputParameters is not None:
 
-        try:
+        for parameter in cmd.OutputParameters:
 
-            values[paramName] = numericValue(
-                parameter.Value
-            )
+            name = str(parameter.Name).upper()
 
-        except:
-            pass
+            try:
+
+                values[name] = numeric_value(
+                    parameter.Value
+                )
+
+            except:
+                pass
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # CREATE COORDINATE SYSTEMS
-    # --------------------------------------------------------
+    # ========================================================
 
-    createdCount = 0
-    updatedCount = 0
+    created_count = 0
+    updated_count = 0
+    failed_nodes = []
 
-    logLines = []
 
-    for index in range(len(entries)):
+    for node_id in node_ids:
 
-        groupName = entries[index][0]
-        nodeId = entries[index][1]
+        x_name, y_name, z_name = parameter_map[node_id]
 
-        tag = str(index + 1).zfill(4)
 
-        xName = "NCX{}".format(tag)
-        yName = "NCY{}".format(tag)
-        zName = "NCZ{}".format(tag)
-
+        # ----------------------------------------------------
+        # CHECK APDL RESULTS
+        # ----------------------------------------------------
 
         if (
-            xName not in values
-            or yName not in values
-            or zName not in values
+            x_name not in values
+            or y_name not in values
+            or z_name not in values
         ):
 
-            logLines.append(
-                "Node {}: APDL sonucu bulunamadi.".format(
-                    nodeId
+            failed_nodes.append(node_id)
+
+            ExtAPI.Log.WriteMessage(
+                "Node {} icin APDL koordinatlari alinamadi.".format(
+                    node_id
                 )
             )
 
             continue
 
 
-        x = values[xName]
-        y = values[yName]
-        z = values[zName]
+        # ----------------------------------------------------
+        # APDL X Y Z
+        # ----------------------------------------------------
+
+        x = values[x_name]
+        y = values[y_name]
+        z = values[z_name]
 
 
         # ----------------------------------------------------
-        # COORDINATE SYSTEM NAME
+        # CS NAME
         # ----------------------------------------------------
 
-        if groupName:
-
-            csName = "CS {} N{}".format(
-                groupName,
-                nodeId
-            )
-
-        else:
-
-            csName = "CS N{}".format(
-                nodeId
-            )
+        cs_name = "CS_at_node_{}".format(
+            node_id
+        )
 
 
         # ----------------------------------------------------
-        # FIND OR CREATE CS
+        # EXISTING CS?
         # ----------------------------------------------------
 
-        cs = getExistingCs(csName)
+        cs = get_existing_cs(
+            cs_name
+        )
+
 
         if cs is None:
 
             cs = Model.CoordinateSystems.AddCoordinateSystem()
 
-            cs.Name = csName
+            cs.Name = cs_name
 
-            createdCount += 1
+            created_count += 1
 
         else:
 
-            updatedCount += 1
+            updated_count += 1
 
 
         # ----------------------------------------------------
-        # APPLY APDL COORDINATES
+        # DEFINE ORIGIN
         # ----------------------------------------------------
 
         cs.OriginDefineBy = (
             CoordinateSystemAlignmentType.Fixed
         )
 
+
         cs.OriginX = Quantity(
-            x,
-            lengthUnit
+            "{} [{}]".format(
+                x,
+                APDL_LENGTH_UNIT
+            )
         )
 
         cs.OriginY = Quantity(
-            y,
-            lengthUnit
+            "{} [{}]".format(
+                y,
+                APDL_LENGTH_UNIT
+            )
         )
 
         cs.OriginZ = Quantity(
-            z,
-            lengthUnit
+            "{} [{}]".format(
+                z,
+                APDL_LENGTH_UNIT
+            )
         )
 
 
@@ -592,66 +596,52 @@ if dialogResult == DialogResult.OK:
         # LOG
         # ----------------------------------------------------
 
-        logLines.append(
-            "Node {} -> X: {}  Y: {}  Z: {} [{}]".format(
-                nodeId,
+        ExtAPI.Log.WriteMessage(
+            "NodeID: {}    X: {}    Y: {}    Z: {} [{}]".format(
+                node_id,
                 x,
                 y,
                 z,
-                lengthUnit
+                APDL_LENGTH_UNIT
             )
         )
 
 
-    # --------------------------------------------------------
-    # REFRESH TREE
-    # --------------------------------------------------------
+    # ========================================================
+    # REFRESH
+    # ========================================================
 
     ExtAPI.DataModel.Tree.Refresh()
 
 
-    # --------------------------------------------------------
-    # LOG OUTPUT
-    # --------------------------------------------------------
+    # ========================================================
+    # RESULT MESSAGE
+    # ========================================================
 
-    ExtAPI.Log.WriteMessage(
-        "=============================================="
+    message = (
+        "Coordinate System islemi tamamlandi.\n\n"
+        "Created: {}\n"
+        "Updated: {}"
+    ).format(
+        created_count,
+        updated_count
     )
 
-    ExtAPI.Log.WriteMessage(
-        "APDL NODE COORDINATE SYSTEM TOOL"
-    )
 
-    for line in logLines:
+    if len(failed_nodes) > 0:
 
-        ExtAPI.Log.WriteMessage(line)
-
-    ExtAPI.Log.WriteMessage(
-        "Created: {}   Updated: {}".format(
-            createdCount,
-            updatedCount
+        message += (
+            "\n\nFailed Nodes: {}"
+        ).format(
+            ", ".join(
+                str(x) for x in failed_nodes
+            )
         )
-    )
 
-    ExtAPI.Log.WriteMessage(
-        "=============================================="
-    )
-
-
-    # --------------------------------------------------------
-    # FINAL MESSAGE
-    # --------------------------------------------------------
 
     MessageBox.Show(
-        "Islem tamamlandi.\r\n\r\n"
-        "Created CS: {}\r\n"
-        "Updated CS: {}\r\n"
-        "Requested nodes: {}".format(
-            createdCount,
-            updatedCount,
-            len(entries)
-        ),
-        "Completed",
+        message,
+        "Coordinate Systems",
         MessageBoxButtons.OK,
         MessageBoxIcon.Information
     )
