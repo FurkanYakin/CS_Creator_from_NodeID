@@ -14,7 +14,7 @@ Remote Point, Joint, Remote Force/Displacement gibi bağlantılar aslında uzakt
 
 Bu yüzden şöyle bir durumla karşılaşabilirsiniz:
 
-> An internal solution magnitude limit was exceeded. (NodeNumber 110, Body Unknown, DOF UX)...
+> An internal solution magnitude limit was exceeded. (NodeNumber 125, Body Unknown, DOF UX)...
 
 Mesh düğüm sayısı 100 olan bir modelde bu numaraya sahip bir node mesh'te görünmediği için hatanın kaynağını arayüzden bulmak çok zordur. Genelde tek yol APDL'e başvurmaktır.
 
@@ -44,8 +44,7 @@ Bu repodaki scriptler iki adımı da otomatik yapar.
 | Dosya | Açıklama |
 |---|---|
 | [`NodeID_to_CS_manual.py`](NodeID_to_CS_manual.py) | Arayüz yok, tek node için çalışır. Node ID script içinde elle girilir. |
-| [`NodeID_to_CS_AUTO_v2.py`](NodeID_to_CS_AUTO_v2.py) | Sade bir arayüz sunar. Birden fazla node ve aralık girilebilir. **Önerilen sürüm budur.** |
-| [`NodeID_to_CS_AUTO.py`](NodeID_to_CS_AUTO.py) | Çok satırlı giriş, grup adı ve birim seçimi. |
+| [`NodeID_to_CS_AUTO.py`](NodeID_to_CS_AUTO.py) | Sade bir arayüz sunar. Birden fazla node ve aralık girilebilir. **Önerilen sürüm budur.** |
 
 ### `NodeID_to_CS_manual.py`
 
@@ -54,29 +53,17 @@ Bu repodaki scriptler iki adımı da otomatik yapar.
 - Result dosyası varsa yalnızca post komutlarını çalıştırır (`ExecutePostCommands`). Yoksa `Model.Solve()` çağırır.
 - Oluşturduğu koordinat sisteminin adı `CS_at_node_<ID>` olur ve eksenleri globalle hizalanır.
 
-### `NodeID_to_CS_AUTO_v2.py` (önerilen)
+### `NodeID_to_CS_AUTO.py` (önerilen)
 
 - Açılan pencereye node ID'leri girersiniz: `125`, `125,130,145`, `125-130` veya `125,130-135,150`.
 - Uzunluk birimi scriptin başındaki `APDL_LENGTH_UNIT` ayarından okunur. Varsayılan değer `"mm"`'dir.
 - Her node için `CS_at_node_<ID>` adında bir koordinat sistemi oluşturur. Aynı adda bir koordinat sistemi zaten varsa onu günceller.
 - Koordinatları okunamayan node'ları sonuç mesajında **Failed Nodes** başlığı altında listeler.
 
-### `NodeID_to_CS_AUTO.py`
-
-- Çok satırlı giriş kabul eder ve her satıra isteğe bağlı bir **grup adı** verilebilir:
-  ```
-  125
-  125-135
-  SupportA: 125,130,140-145
-  ```
-- Uzunluk birimi açılır listeden seçilir: `mm`, `m`, `cm`, `um`, `in`, `ft`.
-- Koordinat sistemlerine `CS N<ID>` ya da grup adı verildiyse `CS <Grup> N<ID>` adı verilir.
-
----
 
 ## Kullanım
 
-1. Analizi **Solve** edin. AUTO scriptler bir result dosyasına ihtiyaç duyar.
+1. Analizi **Solve** edin. AUTO script bir result dosyasına ihtiyaç duyar.
 2. Mechanical'da **Automation → Scripting** sekmesinden Mechanical Scripting panelini açın.
 3. Script dosyasını açıp **Run** ile çalıştırın.
 4. Açılan pencereye hata mesajındaki node numarasını (veya numaralarını) girip **Create Coordinate System** butonuna tıklayın.
@@ -95,7 +82,7 @@ NodeID: 125    X: ...    Y: ...    Z: ... [mm]
 ## Notlar ve kısıtlar
 
 - **Birim:** APDL `*GET` komutu koordinatları **çözücünün birim sisteminde** döndürür. Script içindeki birim ayarı bu sistemle aynı olmalıdır (N-mm için `mm`, MKS için `m`). Aksi halde koordinat sistemi yanlış yere konur.
-- **Result dosyası:** Koordinatlar `/POST1` içinde okunduğu için analiz en az bir kez çözülmüş olmalıdır. AUTO scriptler result dosyası bulamazsa uyarı verip durur.
+- **Result dosyası:** Koordinatlar `/POST1` içinde okunduğu için analiz en az bir kez çözülmüş olmalıdır. AUTO script result dosyası bulamazsa uyarı verip durur.
 - **Analiz:** Scriptler `DataModel.AnalysisList[0]` ile ağaçtaki **ilk** analizi kullanır. Projede birden fazla analiz varsa bunu kendi durumunuza göre düzenleyin.
 - **Command Snippet:** Scriptler Solution altında bir Command Snippet oluşturur. Koordinat değerleri **Details** kısmında listelenir.
 
