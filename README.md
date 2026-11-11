@@ -76,11 +76,11 @@ NodeID: 125    X: ...    Y: ...    Z: ... [mm]
 ```
 
 > 💡 Sık kullanacaksanız scripti Mechanical'da **Button Editor** ile bir toolbar butonuna atayabilirsiniz.
-
-
-
+ 
+ 
+ 
 <img width="1919" height="1020" alt="Ekran Görseli" src="https://github.com/user-attachments/assets/0d6ed409-6b00-47ac-98fc-c59ebdac0ecb" />
-
+ 
 
 ---
 
